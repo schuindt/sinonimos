@@ -1,6 +1,8 @@
-local regex_grupo_de_sinonimos = "<p class=\"sinonimos\">(.-)</p>"
-local regex_sinonimo_hyperlink = "<a href=\".-\" class=\"sinonimo\">(.-)</a>"
-local regex_sinonimo_span      = "<span>(.-)</span>"
+local function insert_iterator(table, iterator)
+   for e in iterator do
+      table.insert(table, e)
+   end
+end
 
 local function cmd(c)
    local fpath = os.tmpname()
@@ -11,23 +13,20 @@ local function cmd(c)
    return output
 end
 
---[[
-local http = require("socket.http")
-local ltn12 = require("ltn12")
-
-local function get_http(u)
-   local t = {}
-   http.request{
-      url = u,
-      sink = ltn12.sink.table(t)
-   }
-   return table.concat(t)
-end
-]]
-
 local function get_http(u)
    return cmd("curl -s " .. u)
 end
+
+local path  = lighty.env["uri.path"]
+local query = lighty.env["uri.query"]
+lighty.header["Content-type"] = "text/plain"
+
+local regex_grupo_de_sinonimos = "<p class=\"sinonimos\">(.-)</p>"
+local regex_sinonimo_hyperlink = "<a href=\".-\" class=\"sinonimo\">(.-)</a>"
+local regex_span = "<span>(.-)</span>"
+local regex_sentido = "<div class=\"sentido\">(.-)</div>"
+
+local function get_sentidos
 
 local function get_sinonimos(palavra, significado)
    local url = "https://www.sinonimos.com.br/" .. palavra .. "/"
@@ -36,14 +35,14 @@ local function get_sinonimos(palavra, significado)
    local sinonimos = {}
    local index = 1
    for grupo in pagina:gmatch(regex_grupo_de_sinonimos) do
-      if not significado or index == significado then 
-         for sinonimo in grupo:gmatch(regex_sinonimo_hyperlink) do
-            table.insert(sinonimos, sinonimo)
-         end
-         for sinonimo in grupo:gmatch(regex_sinonimo_span) do
-            table.insert(sinonimos, sinonimo)
-         end
+      if significado and index ~= significado then
+         goto skip
       end
+
+      insert_iterator(sinonimos, grupo:gmatch(regex_sinonimo_hyperlink))
+      insert_iterator(sinonimos, grupo:gmatch(regex_span))
+      
+      ::skip::
       index = index + 1
    end
 
@@ -51,28 +50,30 @@ local function get_sinonimos(palavra, significado)
    return sinonimos
 end
 
-local valid_request = lighty.env["uri.path"]:match("^/scrapers/sinonimos/([^/]*)$")
-local valid_query = ""
-if lighty.env["uri.query"] then
-   valid_query = lighty.env["uri.query"]:match("^significado=[0-9]*$")
+local request = path:match("^/scrapers/sinonimos/([^/]*)$")
+if not request then return 400 end
+
+local arg
+if query then
+   arg =
+      query:match(".*(sentidos).*") or
+      query:match("^.*(significado=[0-9]*).*$")
 end
 
-if not (valid_request and valid_query) then
-   return 400
-end
+local resultado = {}
 
-local palavra = valid_request
-local significado = tonumber(valid_query:match("[0-9]*$"))
-local sinonimos = get_sinonimos(palavra, significado)
-
-if sinonimos then
-   lighty.header["Content-type"] = "text/plain"
-   for _, sinonimo in ipairs(sinonimos) do
-      table.insert(lighty.content, sinonimo .. "\n")
-      print(sinonimo)
-   end
-   return 200
+if arg == "sentidos" then
+   resultado = get_significados(request) -- TODO
+elseif arg:match("significado=*") then
+   local index_significado = tonumber(arg:match("[0-9]*$"))
+   resultado = get_sinonimos(request, index_significado)
 else
-   return 404
+   resultado = get_sinonimos(request)
 end
+
+if not resultado then return 400 end
+for _, s in ipairs(resultado) do
+   table.insert(lighty.content, resultado .. "\n")
+end
+return 200
 
