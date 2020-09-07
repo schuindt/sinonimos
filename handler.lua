@@ -1,6 +1,6 @@
-local function insert_iterator(table, iterator)
+local function insert_iterator(t, iterator)
    for e in iterator do
-      table.insert(table, e)
+      table.insert(t, e)
    end
 end
 
@@ -26,7 +26,18 @@ local regex_sinonimo_hyperlink = "<a href=\".-\" class=\"sinonimo\">(.-)</a>"
 local regex_span = "<span>(.-)</span>"
 local regex_sentido = "<div class=\"sentido\">(.-)</div>"
 
-local function get_sentidos
+local function get_sentidos(palavra)
+   local url = "https://www.sinonimos.com.br/" .. palavra .. "/"
+   local pagina = get_http(url)
+   
+   local sentidos = {}
+   insert_iterator(sentidos, pagina:gmatch(regex_sentido))
+   for i = 1, #sentidos do
+      sentidos[i] = sentidos[i]:sub(1, -2) .. "."
+   end
+   
+   return sentidos
+end
 
 local function get_sinonimos(palavra, significado)
    local url = "https://www.sinonimos.com.br/" .. palavra .. "/"
@@ -53,7 +64,7 @@ end
 local request = path:match("^/scrapers/sinonimos/([^/]*)$")
 if not request then return 400 end
 
-local arg
+local arg = ""
 if query then
    arg =
       query:match(".*(sentidos).*") or
@@ -63,7 +74,7 @@ end
 local resultado = {}
 
 if arg == "sentidos" then
-   resultado = get_significados(request) -- TODO
+   resultado = get_sentidos(request)
 elseif arg:match("significado=*") then
    local index_significado = tonumber(arg:match("[0-9]*$"))
    resultado = get_sinonimos(request, index_significado)
@@ -73,7 +84,7 @@ end
 
 if not resultado then return 400 end
 for _, s in ipairs(resultado) do
-   table.insert(lighty.content, resultado .. "\n")
+   table.insert(lighty.content, s .. "\n")
 end
 return 200
 
